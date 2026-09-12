@@ -40,18 +40,16 @@ jobs:
         run: |
           set -euo pipefail
           rm -rf build Payload
-          mkdir -p build
           xcodebuild \
             -project PinoAutoLogger.xcodeproj \
             -target PinoAutoLogger \
             -configuration Release \
             -sdk iphoneos \
-            -destination 'generic/platform=iOS' \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY='' \
             CONFIGURATION_BUILD_DIR="$PWD/build" \
-            clean build
+            build
           test -d build/PinoAutoLogger.app
 
       - name: Package unsigned IPA
