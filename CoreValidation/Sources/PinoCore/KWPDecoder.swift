@@ -1,101 +1,202 @@
 import Foundation
 
-struct EngineFrame: Sendable {
-    let rawResponse: String
+struct KWPFrame: Sendable, Equatable {
+    let bytes: [UInt8]
     let payload: [UInt8]
-    let engineLoadPct: Double?
-    let coolantC: Double?
-    let stft1Pct: Double?
-    let ltft1Pct: Double?
-    let stft2Pct: Double?
-    let ltft2Pct: Double?
-    let mapKPa: Double?
-    let rpm: Double?
-    let speedKmh: Double?
-    let ignitionAdvanceDeg: Double?
-    let iatC: Double?
-    let mafGps: Double?
-    let throttlePct: Double?
-    let o2B1S1V: Double?
-    let desiredIdleRpm: Double?
-    let tpsV: Double?
-    let fuelPulse1Ms: Double?
-    let fuelPulse2Ms: Double?
-    let baroKPa: Double?
-    let iacPosPct: Double?
-    let batteryV: Double?
 
-    var rawPayloadHex: String { payload.map { String(format: "%02X", $0) }.joined() }
+    var format: UInt8 { bytes[0] }
+    var target: UInt8 { bytes.count > 1 ? bytes[1] : 0 }
+    var source: UInt8 { bytes.count > 2 ? bytes[2] : 0 }
+    var service: UInt8? { payload.first }
+    var checksum: UInt8 { bytes.last ?? 0 }
 
-    static func decode(_ raw: String) -> EngineFrame? {
-        let bytes = extractHexBytes(raw)
-        guard let i = markerIndex(bytes, [0x61, 0x00]) else { return nil }
-        let p = Array(bytes.dropFirst(i + 2))
-        guard p.count >= 50 else { return nil }
-        func u16(_ i: Int) -> Int { (Int(p[i]) << 8) | Int(p[i + 1]) }
-        return EngineFrame(
-            rawResponse: raw,
-            payload: p,
-            engineLoadPct: Double(p[13]) * 100.0 / 255.0,
-            coolantC: Double(Int(p[14]) - 40),
-            stft1Pct: Double(p[15]) * 0.78125 - 100.0,
-            ltft1Pct: Double(p[16]) * 0.78125 - 100.0,
-            stft2Pct: Double(p[17]) * 0.78125 - 100.0,
-            ltft2Pct: Double(p[18]) * 0.78125 - 100.0,
-            mapKPa: Double(p[19]),
-            rpm: Double(u16(20)) * 0.25,
-            speedKmh: Double(p[22]),
-            ignitionAdvanceDeg: Double(Int(p[23]) - 64),
-            iatC: Double(Int(p[24]) - 40),
-            mafGps: Double(u16(25)) * 0.01,
-            throttlePct: Double(p[27]) * 0.392,
-            o2B1S1V: Double(p[29]) * 0.005,
-            desiredIdleRpm: Double(p[35]) * 10.0,
-            tpsV: Double(p[36]) * 0.0196,
-            fuelPulse1Ms: Double(u16(37)) * 0.001,
-            fuelPulse2Ms: Double(u16(39)) * 0.001,
-            baroKPa: Double(p[41]) * 0.5,
-            iacPosPct: Double(p[42]) * 0.392,
-            batteryV: Double(p[49]) * 0.0784
-        )
+    var hex: String {
+        bytes.map { String(format: "%02X", $0) }.joined(separator: " ")
     }
 
-    private static func markerIndex(_ data: [UInt8], _ marker: [UInt8]) -> Int? {
-        guard data.count >= marker.count else { return nil }
-        for i in 0...(data.count - marker.count) where Array(data[i..<(i + marker.count)]) == marker { return i }
-        return nil
+    var payloadHex: String {
+        payload.map { String(format: "%02X", $0) }.joined(separator: " ")
     }
 
-    private static func extractHexBytes(_ raw: String) -> [UInt8] {
-        // ATS0 removes spaces, so valid ELM frames may be one long hex string.
-        // Extract all hex pairs and then locate the positive-response marker 61 00.
-        // Any incidental pairs before 61 00 (echo/SEARCHING text) are ignored by marker search.
-        let regex = try! NSRegularExpression(pattern: "[0-9A-Fa-f]{2}")
-        let ns = raw as NSString
-        return regex.matches(in: raw, range: NSRange(location: 0, length: ns.length)).compactMap { m in
-            UInt8(ns.substring(with: m.range), radix: 16)
-        }
+    var isNegativeResponse: Bool {
+        payload.first == 0x7F && payload.count >= 3
+    }
+
+    var negativeRequestSID: UInt8? {
+        isNegativeResponse ? payload[1] : nil
+    }
+
+    var negativeResponseCode: UInt8? {
+        isNegativeResponse ? payload[2] : nil
+    }
+
+    func isPositiveResponse(to requestSID: UInt8) -> Bool {
+        guard let service else { return false }
+        return service == requestSID &+ 0x40
     }
 }
 
-struct TripMetrics: Sendable {
-    var lastDate: Date?
-    var distanceKm = 0.0
-    var fuelUsedLEst = 0.0
+enum KWPFrameParser {
+    static func parseAll(_ raw: String) -> [KWPFrame] {
+        var output: [KWPFrame] = []
+        var seen = Set<String>()
+        let lines = raw.replacingOccurrences(of: "\r", with: "\n").components(separatedBy: "\n")
 
-    mutating func update(at now: Date, frame: EngineFrame) -> (fuelLph: Double?, instantKmL: Double?, avgKmL: Double?) {
-        let fuelLph: Double? = frame.mafGps.map { maf in
-            guard maf >= 0 else { return 0 }
-            return (maf / 14.7) * 3600.0 / 745.0
+        for line in lines {
+            for candidate in byteCandidates(from: line) {
+                for frame in frames(from: candidate) {
+                    if seen.insert(frame.hex).inserted {
+                        output.append(frame)
+                    }
+                }
+            }
         }
-        if let prev = lastDate {
-            let hours = max(now.timeIntervalSince(prev), 0) / 3600.0
-            if let speed = frame.speedKmh { distanceKm += speed * hours }
-            if let fuelLph { fuelUsedLEst += fuelLph * hours }
+        return output
+    }
+
+    static func commandBytes(_ command: String) -> [UInt8] {
+        let cleaned = command.filter { $0.isHexDigit }
+        guard cleaned.count >= 2, cleaned.count % 2 == 0 else { return [] }
+        var bytes: [UInt8] = []
+        var i = cleaned.startIndex
+        while i < cleaned.endIndex {
+            let j = cleaned.index(i, offsetBy: 2)
+            guard let b = UInt8(String(cleaned[i..<j]), radix: 16) else { return [] }
+            bytes.append(b)
+            i = j
         }
-        lastDate = now
-        let instant = (frame.speedKmh != nil && fuelLph != nil && fuelLph! > 1e-9) ? frame.speedKmh! / fuelLph! : nil
-        let avg = fuelUsedLEst > 1e-9 ? distanceKm / fuelUsedLEst : nil
-        return (fuelLph, instant, avg)
+        return bytes
+    }
+
+    static func classify(command: String, raw: String) -> KWPClassification {
+        let request = commandBytes(command)
+        let requestSID = request.first
+        let frames = parseAll(raw)
+
+        if let sid = requestSID {
+            if let f = frames.first(where: { $0.negativeRequestSID == sid }) {
+                return KWPClassification(
+                    kind: .negative,
+                    requestSID: sid,
+                    responseSID: f.service,
+                    nrc: f.negativeResponseCode,
+                    frames: frames
+                )
+            }
+            if let f = frames.first(where: { $0.isPositiveResponse(to: sid) }) {
+                return KWPClassification(
+                    kind: .positive,
+                    requestSID: sid,
+                    responseSID: f.service,
+                    nrc: nil,
+                    frames: frames
+                )
+            }
+        }
+
+        let u = raw.uppercased()
+        if u.contains("NO DATA") || u.contains("UNABLE TO CONNECT") || u.contains("BUS ERROR") {
+            return KWPClassification(kind: .noData, requestSID: requestSID, responseSID: nil, nrc: nil, frames: frames)
+        }
+        if u.contains("?") || u.contains("ERROR") {
+            return KWPClassification(kind: .adapterError, requestSID: requestSID, responseSID: nil, nrc: nil, frames: frames)
+        }
+        if !frames.isEmpty {
+            return KWPClassification(kind: .otherFrame, requestSID: requestSID, responseSID: frames.first?.service, nrc: nil, frames: frames)
+        }
+        return KWPClassification(kind: .noKWPFrame, requestSID: requestSID, responseSID: nil, nrc: nil, frames: [])
+    }
+
+    private static func byteCandidates(from line: String) -> [[UInt8]] {
+        var candidates: [[UInt8]] = []
+
+        let pairRegex = try! NSRegularExpression(pattern: "(?i)(?<![0-9A-F])[0-9A-F]{2}(?![0-9A-F])")
+        let ns = line as NSString
+        let pairs = pairRegex.matches(in: line, range: NSRange(location: 0, length: ns.length)).compactMap {
+            UInt8(ns.substring(with: $0.range), radix: 16)
+        }
+        if pairs.count >= 5 {
+            candidates.append(pairs)
+        }
+
+        let compactRegex = try! NSRegularExpression(pattern: "(?i)(?<![0-9A-F])[0-9A-F]{10,}(?![0-9A-F])")
+        for match in compactRegex.matches(in: line, range: NSRange(location: 0, length: ns.length)) {
+            let s = ns.substring(with: match.range)
+            if s.count % 2 == 0 {
+                let b = commandBytes(s)
+                if b.count >= 5 { candidates.append(b) }
+            }
+        }
+
+        return candidates
+    }
+
+    private static func frames(from bytes: [UInt8]) -> [KWPFrame] {
+        guard bytes.count >= 5 else { return [] }
+        var result: [KWPFrame] = []
+        for start in 0..<bytes.count {
+            let format = bytes[start]
+            let payloadLength = Int(format & 0x3F)
+            guard payloadLength >= 1 else { continue }
+            let totalLength = payloadLength + 4
+            guard start + totalLength <= bytes.count else { continue }
+            let frameBytes = Array(bytes[start..<(start + totalLength)])
+            let calculated = frameBytes.dropLast().reduce(0) { ($0 + Int($1)) & 0xFF }
+            guard UInt8(calculated) == frameBytes.last else { continue }
+            let payload = Array(frameBytes[3..<(3 + payloadLength)])
+            result.append(KWPFrame(bytes: frameBytes, payload: payload))
+        }
+        return result
+    }
+}
+
+struct KWPClassification: Sendable {
+    enum Kind: String, Sendable {
+        case positive
+        case negative
+        case noData
+        case adapterError
+        case otherFrame
+        case noKWPFrame
+    }
+
+    let kind: Kind
+    let requestSID: UInt8?
+    let responseSID: UInt8?
+    let nrc: UInt8?
+    let frames: [KWPFrame]
+
+    var summary: String {
+        switch kind {
+        case .positive:
+            return "POSITIVE"
+        case .negative:
+            if let nrc {
+                return "NEGATIVE NRC=\(String(format: "%02X", nrc)) \(Self.nrcName(nrc))"
+            }
+            return "NEGATIVE"
+        case .noData:
+            return "NO_DATA"
+        case .adapterError:
+            return "ADAPTER_ERROR"
+        case .otherFrame:
+            return "OTHER_KWP_FRAME"
+        case .noKWPFrame:
+            return "NO_KWP_FRAME"
+        }
+    }
+
+    static func nrcName(_ nrc: UInt8) -> String {
+        switch nrc {
+        case 0x10: return "generalReject"
+        case 0x11: return "serviceNotSupported"
+        case 0x12: return "subFunctionNotSupportedOrInvalidFormat"
+        case 0x21: return "busyRepeatRequest"
+        case 0x22: return "conditionsNotCorrect"
+        case 0x31: return "requestOutOfRange"
+        case 0x33: return "securityAccessDenied"
+        case 0x78: return "responsePending"
+        default: return "unknown"
+        }
     }
 }

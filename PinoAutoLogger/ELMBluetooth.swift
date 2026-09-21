@@ -3,12 +3,18 @@ import CoreBluetooth
 import AccessorySetupKit
 import UIKit
 
+struct TransportRecord: Sendable {
+    let date: Date
+    let direction: String
+    let text: String
+}
+
 @MainActor
 final class ELMBluetooth: NSObject, ObservableObject {
     static let serviceUUID = CBUUID(string: "FFF0")
     static let notifyUUID = CBUUID(string: "FFF1")
     static let writeUUID = CBUUID(string: "FFF2")
-    private static let restoreID = "jp.local.pinoautologger.central"
+    private static let restoreID = "jp.local.pinoautologger.central.v3"
     private static let savedPeripheralKey = "PinoAutoLogger.peripheralUUID"
 
     @Published private(set) var bluetoothStatus = "初期化中"
@@ -16,16 +22,21 @@ final class ELMBluetooth: NSObject, ObservableObject {
     @Published private(set) var connected = false
     @Published private(set) var ready = false
 
+    var traceSink: ((TransportRecord) -> Void)?
+
     private let accessorySession = ASAccessorySession()
     private var pendingAccessory: ASAccessory?
     private var central: CBCentralManager!
     private var peripheral: CBPeripheral?
     private var writeCharacteristic: CBCharacteristic?
     private var notifyCharacteristic: CBCharacteristic?
+
     private var rxBuffer = ""
+    private var idleBuffer = ""
     private var pendingContinuation: CheckedContinuation<String, Error>?
     private var pendingToken: UUID?
-    private var starting = false
+    private var settleTask: Task<Void, Never>?
+    private var timeoutTask: Task<Void, Never>?
     private var accessoryKitActive = false
     private var fallbackScanning = false
 
@@ -70,25 +81,8 @@ final class ELMBluetooth: NSObject, ObservableObject {
             accessoryName = a.displayName
             attachAndConnect(p)
         } else {
-            bluetoothStatus = "OBDBLEを直接検索中"
             startFallbackScan()
         }
-    }
-
-    private func startFallbackScan() {
-        guard central != nil, central.state == .poweredOn, !fallbackScanning else { return }
-        fallbackScanning = true
-        bluetoothStatus = "OBDBLEをBLE直接検索中"
-        // Background scanでも成立するよう，既知のFFF0サービスに限定する．
-        central.scanForPeripherals(withServices: [Self.serviceUUID], options: [
-            CBCentralManagerScanOptionAllowDuplicatesKey: false
-        ])
-    }
-
-    private func stopFallbackScan() {
-        guard fallbackScanning else { return }
-        central.stopScan()
-        fallbackScanning = false
     }
 
     func send(_ command: String, timeout: TimeInterval = 4.0) async throws -> String {
@@ -96,20 +90,54 @@ final class ELMBluetooth: NSObject, ObservableObject {
             throw ELMError.notConnected
         }
         if pendingContinuation != nil { throw ELMError.commandBusy }
-        rxBuffer = ""
-        let token = UUID(); pendingToken = token
+
+        let token = UUID()
+        pendingToken = token
+
+        // 前コマンドの遅延KWPフレームが到着していた場合も次の応答に含め，
+        // SID/チェックサムで上位層が正しく相関できるようにする．
+        rxBuffer = idleBuffer
+        idleBuffer = ""
+
+        traceSink?(TransportRecord(date: Date(), direction: "TX", text: command))
+
         let payload = Data((command.trimmingCharacters(in: .whitespacesAndNewlines) + "\r").utf8)
+
         return try await withCheckedThrowingContinuation { continuation in
             pendingContinuation = continuation
+
             let type: CBCharacteristicWriteType = w.properties.contains(.write) ? .withResponse : .withoutResponse
             p.writeValue(payload, for: w, type: type)
-            Task { @MainActor [weak self] in
+
+            timeoutTask?.cancel()
+            timeoutTask = Task { @MainActor [weak self] in
                 try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
-                guard let self, self.pendingToken == token, let c = self.pendingContinuation else { return }
-                self.pendingContinuation = nil; self.pendingToken = nil
-                c.resume(returning: self.rxBuffer.trimmingCharacters(in: .whitespacesAndNewlines))
+                guard !Task.isCancelled else { return }
+                self?.finishPending(token: token)
             }
         }
+    }
+
+    private func schedulePromptSettle(token: UUID) {
+        settleTask?.cancel()
+        settleTask = Task { @MainActor [weak self] in
+            // Car Scanner実機でコマンド間に遅延応答が跨ったため，
+            // prompt直後に即returnせず300msの静穏時間を取る．
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            guard !Task.isCancelled else { return }
+            self?.finishPending(token: token)
+        }
+    }
+
+    private func finishPending(token: UUID) {
+        guard pendingToken == token, let c = pendingContinuation else { return }
+        settleTask?.cancel()
+        timeoutTask?.cancel()
+        pendingContinuation = nil
+        pendingToken = nil
+        let out = rxBuffer.trimmingCharacters(in: .whitespacesAndNewlines)
+        rxBuffer = ""
+        c.resume(returning: out)
     }
 
     private func activateAccessorySession() {
@@ -145,14 +173,31 @@ final class ELMBluetooth: NSObject, ObservableObject {
                 self.accessoryKitActive = false
                 self.bluetoothStatus = "AccessorySetupKit無効・BLE直接検索へ切替"
                 self.startFallbackScan()
-            default: break
+            default:
+                break
             }
         }
     }
 
+    private func startFallbackScan() {
+        guard central != nil, central.state == .poweredOn, !fallbackScanning else { return }
+        fallbackScanning = true
+        bluetoothStatus = "OBDBLEをBLE直接検索中"
+        central.scanForPeripherals(withServices: [Self.serviceUUID], options: [
+            CBCentralManagerScanOptionAllowDuplicatesKey: false
+        ])
+    }
+
+    private func stopFallbackScan() {
+        guard fallbackScanning else { return }
+        central.stopScan()
+        fallbackScanning = false
+    }
+
     private func attachAndConnect(_ p: CBPeripheral) {
         if peripheral?.identifier == p.identifier && (p.state == .connected || p.state == .connecting) { return }
-        peripheral = p; p.delegate = self
+        peripheral = p
+        p.delegate = self
         ready = false
         bluetoothStatus = "OBDBLEへ接続待機"
         central.connect(p, options: [CBConnectPeripheralOptionNotifyOnDisconnectionKey: true])
@@ -162,42 +207,59 @@ final class ELMBluetooth: NSObject, ObservableObject {
         guard let p = peripheral else { return }
         var notify: CBCharacteristic?
         var write: CBCharacteristic?
+
         for service in p.services ?? [] {
             for c in service.characteristics ?? [] {
-                if c.uuid == Self.notifyUUID && (c.properties.contains(.notify) || c.properties.contains(.indicate)) { notify = c }
-                if c.uuid == Self.writeUUID && (c.properties.contains(.write) || c.properties.contains(.writeWithoutResponse)) { write = c }
-                if c.uuid == Self.notifyUUID && write == nil && (c.properties.contains(.write) || c.properties.contains(.writeWithoutResponse)) { write = c }
+                if c.uuid == Self.notifyUUID && (c.properties.contains(.notify) || c.properties.contains(.indicate)) {
+                    notify = c
+                }
+                if c.uuid == Self.writeUUID && (c.properties.contains(.write) || c.properties.contains(.writeWithoutResponse)) {
+                    write = c
+                }
+                // 一部クローンはFFF1一つでnotify/writeを兼用する．
+                if c.uuid == Self.notifyUUID && write == nil &&
+                    (c.properties.contains(.write) || c.properties.contains(.writeWithoutResponse)) {
+                    write = c
+                }
             }
         }
+
         notifyCharacteristic = notify
         writeCharacteristic = write
-        if let n = notify {
-            p.setNotifyValue(true, for: n)
-            if write != nil {
-                ready = true
-                bluetoothStatus = "ELM327通信準備完了"
-            }
-        } else {
-            bluetoothStatus = "FFF1 Notifyが見つかりません"
+
+        guard let n = notify, write != nil else {
+            bluetoothStatus = notify == nil ? "FFF1 Notifyが見つかりません" : "Write characteristicが見つかりません"
+            return
         }
+
+        p.setNotifyValue(true, for: n)
     }
 }
 
-enum ELMError: Error { case notConnected, commandBusy }
+enum ELMError: Error {
+    case notConnected
+    case commandBusy
+}
 
 extension ELMBluetooth: CBCentralManagerDelegate {
     func centralManagerDidUpdateState(_ central: CBCentralManager) {
         switch central.state {
-        case .poweredOn: bluetoothStatus = "Bluetooth ON"; reconnect()
-        case .poweredOff: bluetoothStatus = "Bluetooth OFF"
-        case .unauthorized: bluetoothStatus = "Bluetooth権限なし"
-        default: bluetoothStatus = "Bluetooth待機"
+        case .poweredOn:
+            bluetoothStatus = "Bluetooth ON"
+            reconnect()
+        case .poweredOff:
+            bluetoothStatus = "Bluetooth OFF"
+        case .unauthorized:
+            bluetoothStatus = "Bluetooth権限なし"
+        default:
+            bluetoothStatus = "Bluetooth待機"
         }
     }
 
     func centralManager(_ central: CBCentralManager, willRestoreState dict: [String : Any]) {
         if let ps = dict[CBCentralManagerRestoredStatePeripheralsKey] as? [CBPeripheral], let p = ps.first {
-            peripheral = p; p.delegate = self
+            peripheral = p
+            p.delegate = self
             accessoryName = p.name ?? "OBDBLE"
             if p.state == .connected {
                 connected = true
@@ -208,10 +270,12 @@ extension ELMBluetooth: CBCentralManagerDelegate {
         }
     }
 
-    func centralManager(_ central: CBCentralManager, didDiscover peripheral: CBPeripheral, advertisementData: [String : Any], rssi RSSI: NSNumber) {
+    func centralManager(_ central: CBCentralManager, didDiscover peripheral: CBPeripheral,
+                        advertisementData: [String : Any], rssi RSSI: NSNumber) {
         let advertisedName = (advertisementData[CBAdvertisementDataLocalNameKey] as? String) ?? peripheral.name ?? ""
-        // FFF0サービスで絞っているため，名称が空のクローンでも候補とする．
-        if advertisedName.isEmpty || advertisedName.localizedCaseInsensitiveContains("OBD") || advertisedName.localizedCaseInsensitiveContains("ELM") {
+        if advertisedName.isEmpty ||
+            advertisedName.localizedCaseInsensitiveContains("OBD") ||
+            advertisedName.localizedCaseInsensitiveContains("ELM") {
             stopFallbackScan()
             UserDefaults.standard.set(peripheral.identifier.uuidString, forKey: Self.savedPeripheralKey)
             accessoryName = advertisedName.isEmpty ? "OBD BLE" : advertisedName
@@ -221,24 +285,36 @@ extension ELMBluetooth: CBCentralManagerDelegate {
 
     func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
         stopFallbackScan()
-        connected = true; ready = false; bluetoothStatus = "OBDBLE接続済"
+        connected = true
+        ready = false
+        bluetoothStatus = "OBDBLE接続済"
         peripheral.delegate = self
         UserDefaults.standard.set(peripheral.identifier.uuidString, forKey: Self.savedPeripheralKey)
         peripheral.discoverServices(nil)
     }
 
     func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: Error?) {
-        connected = false; ready = false; bluetoothStatus = "接続失敗・再待機"
+        connected = false
+        ready = false
+        bluetoothStatus = "接続失敗・再待機"
         central.connect(peripheral, options: nil)
     }
 
     func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
-        connected = false; ready = false; writeCharacteristic = nil; notifyCharacteristic = nil
+        connected = false
+        ready = false
+        writeCharacteristic = nil
+        notifyCharacteristic = nil
         bluetoothStatus = "切断・自動再接続待機"
+
         if let c = pendingContinuation {
-            pendingContinuation = nil; pendingToken = nil
+            pendingContinuation = nil
+            pendingToken = nil
+            settleTask?.cancel()
+            timeoutTask?.cancel()
             c.resume(throwing: ELMError.notConnected)
         }
+
         NotificationCenter.default.post(name: .elmDidDisconnect, object: nil)
         central.connect(peripheral, options: nil)
     }
@@ -246,23 +322,51 @@ extension ELMBluetooth: CBCentralManagerDelegate {
 
 extension ELMBluetooth: CBPeripheralDelegate {
     func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
-        if let error { bluetoothStatus = "サービス探索失敗: \(error.localizedDescription)"; return }
-        for s in peripheral.services ?? [] { peripheral.discoverCharacteristics(nil, for: s) }
+        if let error {
+            bluetoothStatus = "サービス探索失敗: \(error.localizedDescription)"
+            return
+        }
+        for s in peripheral.services ?? [] {
+            peripheral.discoverCharacteristics(nil, for: s)
+        }
     }
 
     func peripheral(_ peripheral: CBPeripheral, didDiscoverCharacteristicsFor service: CBService, error: Error?) {
-        if let error { bluetoothStatus = "Characteristic探索失敗: \(error.localizedDescription)"; return }
+        if let error {
+            bluetoothStatus = "Characteristic探索失敗: \(error.localizedDescription)"
+            return
+        }
         chooseCharacteristics()
-        if ready { NotificationCenter.default.post(name: .elmReady, object: nil) }
+    }
+
+    func peripheral(_ peripheral: CBPeripheral, didUpdateNotificationStateFor characteristic: CBCharacteristic, error: Error?) {
+        if let error {
+            bluetoothStatus = "Notify有効化失敗: \(error.localizedDescription)"
+            return
+        }
+        if characteristic.uuid == Self.notifyUUID && characteristic.isNotifying && writeCharacteristic != nil {
+            ready = true
+            bluetoothStatus = "ELM327 BLE通信路準備完了"
+            NotificationCenter.default.post(name: .elmReady, object: nil)
+        }
     }
 
     func peripheral(_ peripheral: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
         guard error == nil, let data = characteristic.value else { return }
-        rxBuffer += String(decoding: data, as: UTF8.self)
-        guard let range = rxBuffer.range(of: ">"), let c = pendingContinuation else { return }
-        let response = String(rxBuffer[..<range.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
-        pendingContinuation = nil; pendingToken = nil
-        c.resume(returning: response)
+        let chunk = String(decoding: data, as: UTF8.self)
+        traceSink?(TransportRecord(date: Date(), direction: "RX_CHUNK", text: chunk))
+
+        if pendingContinuation != nil {
+            rxBuffer += chunk
+            if rxBuffer.contains(">"), let token = pendingToken {
+                schedulePromptSettle(token: token)
+            }
+        } else {
+            idleBuffer += chunk
+            if idleBuffer.count > 8192 {
+                idleBuffer = String(idleBuffer.suffix(8192))
+            }
+        }
     }
 }
 

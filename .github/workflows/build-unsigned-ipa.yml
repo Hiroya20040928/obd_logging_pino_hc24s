@@ -1,4 +1,4 @@
-name: Build unsigned iPhone IPA
+name: Build Pino Auto Logger v3 unsigned IPA
 
 on:
   workflow_dispatch:
@@ -28,7 +28,7 @@ jobs:
           xcodebuild -version
           xcrun --sdk iphoneos --show-sdk-version
 
-      - name: Run protocol decoder tests
+      - name: Run protocol parser tests
         shell: bash
         run: |
           set -euo pipefail
@@ -52,20 +52,29 @@ jobs:
             build
           test -d build/PinoAutoLogger.app
 
+      - name: Verify app bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' build/PinoAutoLogger.app/Info.plist
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' build/PinoAutoLogger.app/Info.plist
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' build/PinoAutoLogger.app/Info.plist
+          test -x build/PinoAutoLogger.app/PinoAutoLogger
+
       - name: Package unsigned IPA
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p Payload
           cp -R build/PinoAutoLogger.app Payload/
-          /usr/bin/zip -qry PinoAutoLogger-HC24S-unsigned.ipa Payload
-          shasum -a 256 PinoAutoLogger-HC24S-unsigned.ipa | tee PinoAutoLogger-HC24S-unsigned.sha256
+          /usr/bin/zip -qry PinoAutoLogger-HC24S-v3-unsigned.ipa Payload
+          shasum -a 256 PinoAutoLogger-HC24S-v3-unsigned.ipa | tee PinoAutoLogger-HC24S-v3-unsigned.sha256
 
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
         with:
-          name: PinoAutoLogger-HC24S-unsigned-IPA
+          name: PinoAutoLogger-HC24S-v3-unsigned-IPA
           path: |
-            PinoAutoLogger-HC24S-unsigned.ipa
-            PinoAutoLogger-HC24S-unsigned.sha256
+            PinoAutoLogger-HC24S-v3-unsigned.ipa
+            PinoAutoLogger-HC24S-v3-unsigned.sha256
           retention-days: 30

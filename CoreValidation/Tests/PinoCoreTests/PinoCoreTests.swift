@@ -2,33 +2,66 @@ import XCTest
 @testable import PinoCore
 
 final class PinoCoreTests: XCTestCase {
-    func makeFrame() -> String {
-        var b = [UInt8](repeating: 0, count: 65)
-        b[13] = 128; b[14] = 128; b[19] = 45
-        let rpmRaw = Int(3200.0 / 0.25); b[20] = UInt8((rpmRaw >> 8) & 0xFF); b[21] = UInt8(rpmRaw & 0xFF)
-        b[22] = 60; b[23] = 84; b[24] = 70
-        let maf = 350; b[25] = UInt8((maf >> 8) & 0xFF); b[26] = UInt8(maf & 0xFF)
-        b[27] = 51; b[29] = 160; b[35] = 80; b[36] = 40
-        let pw1 = 2500; b[37] = UInt8((pw1 >> 8) & 0xFF); b[38] = UInt8(pw1 & 0xFF)
-        let pw2 = 2600; b[39] = UInt8((pw2 >> 8) & 0xFF); b[40] = UInt8(pw2 & 0xFF)
-        b[41] = 200; b[42] = 64; b[49] = 180
-        return "61 00 " + b.map { String(format: "%02X", $0) }.joined(separator: " ")
+    func testActualHC24SNegativeService22Frame() throws {
+        let raw = "22\r83 F1 11 7F 22 11 37\r>"
+        let frames = KWPFrameParser.parseAll(raw)
+        XCTAssertEqual(frames.count, 1)
+        XCTAssertEqual(frames[0].source, 0x11)
+        XCTAssertEqual(frames[0].target, 0xF1)
+        XCTAssertEqual(frames[0].negativeRequestSID, 0x22)
+        XCTAssertEqual(frames[0].negativeResponseCode, 0x11)
+
+        let c = KWPFrameParser.classify(command: "22", raw: raw)
+        XCTAssertEqual(c.kind, .negative)
+        XCTAssertEqual(c.nrc, 0x11)
     }
 
-    func testDecodesKnownFrame() throws {
-        let f = try XCTUnwrap(EngineFrame.decode(makeFrame()))
-        XCTAssertEqual(f.payload.count, 65)
-        XCTAssertEqual(f.rpm!, 3200, accuracy: 0.1)
-        XCTAssertEqual(f.speedKmh!, 60, accuracy: 0.1)
-        XCTAssertEqual(f.coolantC!, 88, accuracy: 0.1)
-        XCTAssertEqual(f.mafGps!, 3.5, accuracy: 0.01)
-        XCTAssertEqual(f.batteryV!, 14.112, accuracy: 0.001)
+    func testActualHC24STesterPresentPositive() throws {
+        let raw = "3E\r81 F1 11 7E 01\r>"
+        let frames = KWPFrameParser.parseAll(raw)
+        XCTAssertEqual(frames.count, 1)
+        XCTAssertEqual(frames[0].service, 0x7E)
+
+        let c = KWPFrameParser.classify(command: "3E", raw: raw)
+        XCTAssertEqual(c.kind, .positive)
     }
 
-    func testRejectsNegativeResponse() { XCTAssertNil(EngineFrame.decode("7F 21 12")) }
-    func testNoiseDoesNotCorruptFrame() { XCTAssertNotNil(EngineFrame.decode("2100\rSEARCHING...\r" + makeFrame() + "\r>")) }
-    func testCompactATS0FrameDecodes() {
-        let compact = makeFrame().replacingOccurrences(of: " ", with: "")
-        XCTAssertNotNil(EngineFrame.decode(compact + ">"))
+    func testAllObservedHC24SChecksums() {
+        let frames = [
+            "83 F1 11 7F 01 11 16",
+            "83 F1 11 7F 10 11 25",
+            "83 F1 11 7F 1A 11 2F",
+            "83 F1 11 7F 21 11 36",
+            "83 F1 11 7F 22 11 37",
+            "83 F1 11 7F 23 11 38",
+            "81 F1 11 7E 01"
+        ]
+        for f in frames {
+            XCTAssertEqual(KWPFrameParser.parseAll(f).count, 1, "Failed: \(f)")
+        }
+    }
+
+    func testDelayedMixedOutputStillFindsKWP() {
+        let raw = """
+        OKELM327 v2.1
+        >
+        BUS INIT:
+        83 F1 11 7F 21 11 36
+        >
+        """
+        let f = KWPFrameParser.parseAll(raw)
+        XCTAssertEqual(f.count, 1)
+        XCTAssertEqual(f[0].negativeRequestSID, 0x21)
+    }
+
+    func testCompactFrame() {
+        let raw = "81F1117E01>"
+        let f = KWPFrameParser.parseAll(raw)
+        XCTAssertEqual(f.count, 1)
+        XCTAssertEqual(f[0].service, 0x7E)
+    }
+
+    func testBadChecksumRejected() {
+        XCTAssertTrue(KWPFrameParser.parseAll("83 F1 11 7F 22 11 00").isEmpty)
     }
 }
