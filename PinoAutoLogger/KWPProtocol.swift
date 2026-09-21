@@ -166,7 +166,7 @@ final class KWPProtocol {
     ]
 
     // custom planでも安全側に固定する．未知のメーカー独自SID総当たりは行わない．
-    static func isSafeReadOnly(_ command: String) -> Bool {
+    nonisolated static func isSafeReadOnly(_ command: String) -> Bool {
         let b = KWPFrameParser.commandBytes(command)
         guard let sid = b.first else { return false }
         let allow: Set<UInt8> = [

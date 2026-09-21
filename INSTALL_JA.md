@@ -1,6 +1,6 @@
 # Windows + GitHub Actions + AltStore 実装手順
 
-## 1. 既存GitHubリポジトリをv3へ置換
+## 1. 既存GitHubリポジトリをv3.2へ置換
 
 GitHub Desktopで `obd_logging_pino_hc24s` を選択する．
 
@@ -40,7 +40,7 @@ obd_logging_pino_hc24s/
 
 GitHub DesktopのSummary:
 
-`HC24S v3 safe discovery logger`
+`HC24S v3.2 actor-isolation fix`
 
 `Commit to main` → `Push origin`
 
@@ -48,7 +48,7 @@ GitHub DesktopのSummary:
 
 ブラウザでリポジトリ → `Actions`
 
-`Build Pino Auto Logger v3 unsigned IPA`
+`Build Pino Auto Logger v3.2 unsigned IPA`
 
 Pushで自動開始する．
 手動なら `Run workflow`．
@@ -63,13 +63,13 @@ Pushで自動開始する．
 
 Artifacts:
 
-`PinoAutoLogger-HC24S-v3-unsigned-IPA`
+`PinoAutoLogger-HC24S-v3.2-unsigned-IPA`
 
 をダウンロードする．
 
 中身:
 
-- `PinoAutoLogger-HC24S-v3-unsigned.ipa`
+- `PinoAutoLogger-HC24S-v3.2-unsigned.ipa`
 - SHA256ファイル
 
 ## 4. AltStoreで更新
@@ -82,7 +82,7 @@ Windows:
 
 iPhone:
 
-`AltStore → My Apps → + → PinoAutoLogger-HC24S-v3-unsigned.ipa`
+`AltStore → My Apps → + → PinoAutoLogger-HC24S-v3.2-unsigned.ipa`
 
 同一Bundle IDなので，まず既存Pino Auto Loggerへの更新として入れる．
 更新に失敗した場合だけ既存Pino Auto Loggerを削除し，再インストールする．
@@ -91,7 +91,7 @@ iPhone:
 ## 5. 初回起動
 
 1. BluetoothをON
-2. Pino Auto Logger v3を起動
+2. Pino Auto Logger v3.2を起動
 3. Bluetooth権限を許可
 4. アダプターが未登録なら `OBDBLEを登録`
 5. 自動ロギングをON

@@ -1,3 +1,9 @@
+# v3.2 Build Fix
+
+GitHub Actions run 35597136048で，`TripLogWriter.swift`から`@MainActor KWPProtocol`の純粋static関数`isSafeReadOnly`を同期呼出ししたため，Swiftコンパイラがactor isolation errorで停止した．v3.2では同関数を`nonisolated static`へ変更した．関数は引数文字列をbyte列へ変換してallowlist判定するだけで，共有可変状態やUI状態へアクセスしないため，nonisolated化が適切である．
+
+ローカルSwift 6.2.1で`KWPDecoder.swift`，`KWPProtocol.swift`，`TripLogWriter.swift`をBLE stubとともにmodule compileし，actor isolation errorが解消したことを確認した．
+
 # Test report
 
 ## 実行済み
@@ -25,7 +31,7 @@
 `Info.plist` はplistとして再読込し，
 
 - `CFBundleExecutable = $(EXECUTABLE_NAME)`
-- `CFBundleShortVersionString = 3.0`
+- `CFBundleShortVersionString = 3.2`
 
 を確認した．
 
@@ -47,8 +53,8 @@ macOS 26 + Xcode 26で，
 
 ## 未実施
 
-この生成環境にはユーザーのiPhone，OBDBLE，HC24S実車がないため，v3の現車BLE/K-Line試験は未実施である．
-したがって「v3がHC24S固有ライブデータを既に復号できる」とはしていない．
+この生成環境にはユーザーのiPhone，OBDBLE，HC24S実車がないため，v3.2の現車BLE/K-Line試験は未実施である．
+したがって「v3.2がHC24S固有ライブデータを既に復号できる」とはしていない．
 
 通信初期化は今回HC24S現車で手動成立した，
 
