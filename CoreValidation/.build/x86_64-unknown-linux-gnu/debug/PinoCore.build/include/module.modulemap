@@ -1,0 +1,3 @@
+module PinoCore {
+    header "/mnt/data/pino_v33src/CoreValidation/.build/x86_64-unknown-linux-gnu/debug/PinoCore.build/include/PinoCore-Swift.h"
+}

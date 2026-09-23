@@ -1,0 +1,3 @@
+module PinoCoreValidationPackageTests {
+    header "/mnt/data/pino_v33src/CoreValidation/.build/x86_64-unknown-linux-gnu/debug/PinoCoreValidationPackageTests.build/include/PinoCoreValidationPackageTests-Swift.h"
+}
