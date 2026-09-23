@@ -1,0 +1,12 @@
+{
+  "": {
+    "swift-dependencies": "/mnt/data/pino_v33src/CoreValidation/.build/x86_64-unknown-linux-gnu/debug/PinoCoreTests.build/master.swiftdeps"
+  },
+  "/mnt/data/pino_v33src/CoreValidation/Tests/PinoCoreTests/PinoCoreTests.swift": {
+    "dependencies": "/mnt/data/pino_v33src/CoreValidation/.build/x86_64-unknown-linux-gnu/debug/PinoCoreTests.build/PinoCoreTests.d",
+    "object": "/mnt/data/pino_v33src/CoreValidation/.build/x86_64-unknown-linux-gnu/debug/PinoCoreTests.build/PinoCoreTests.swift.o",
+    "swiftmodule": "/mnt/data/pino_v33src/CoreValidation/.build/x86_64-unknown-linux-gnu/debug/PinoCoreTests.build/PinoCoreTests~partial.swiftmodule",
+    "swift-dependencies": "/mnt/data/pino_v33src/CoreValidation/.build/x86_64-unknown-linux-gnu/debug/PinoCoreTests.build/PinoCoreTests.swiftdeps",
+    "diagnostics": "/mnt/data/pino_v33src/CoreValidation/.build/x86_64-unknown-linux-gnu/debug/PinoCoreTests.build/PinoCoreTests.dia"
+  }
+}

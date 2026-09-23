@@ -1,4 +1,4 @@
-name: Build Pino Auto Logger v3.2 unsigned IPA
+name: Build Pino Auto Logger v3.3 unsigned IPA
 
 on:
   workflow_dispatch:
@@ -67,14 +67,14 @@ jobs:
           set -euo pipefail
           mkdir -p Payload
           cp -R build/PinoAutoLogger.app Payload/
-          /usr/bin/zip -qry PinoAutoLogger-HC24S-v3.2-unsigned.ipa Payload
-          shasum -a 256 PinoAutoLogger-HC24S-v3.2-unsigned.ipa | tee PinoAutoLogger-HC24S-v3.2-unsigned.sha256
+          /usr/bin/zip -qry PinoAutoLogger-HC24S-v3.3-unsigned.ipa Payload
+          shasum -a 256 PinoAutoLogger-HC24S-v3.3-unsigned.ipa | tee PinoAutoLogger-HC24S-v3.3-unsigned.sha256
 
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
         with:
-          name: PinoAutoLogger-HC24S-v3.2-unsigned-IPA
+          name: PinoAutoLogger-HC24S-v3.3-unsigned-IPA
           path: |
-            PinoAutoLogger-HC24S-v3.2-unsigned.ipa
-            PinoAutoLogger-HC24S-v3.2-unsigned.sha256
+            PinoAutoLogger-HC24S-v3.3-unsigned.ipa
+            PinoAutoLogger-HC24S-v3.3-unsigned.sha256
           retention-days: 30

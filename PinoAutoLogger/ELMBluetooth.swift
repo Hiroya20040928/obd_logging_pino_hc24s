@@ -42,11 +42,21 @@ final class ELMBluetooth: NSObject, ObservableObject {
 
     override init() {
         super.init()
-        activateAccessorySession()
+
+        // CoreBluetoothを先に確立する．
+        // 既にAccessorySetupKitへOBDBLEが登録済みの場合，activate()直後の
+        // .activated callbackからreconnect()が呼ばれることがある．
+        // 旧順序ではcentralがnilのまま参照され，更新インストール直後に
+        // 起動クラッシュするraceが成立していた．
         central = CBCentralManager(delegate: self, queue: nil, options: [
             CBCentralManagerOptionRestoreIdentifierKey: Self.restoreID,
             CBCentralManagerOptionShowPowerAlertKey: true
         ])
+
+        // centralの代入完了後，次のmain-run-loopでAccessorySetupKitをactivateする．
+        DispatchQueue.main.async { [weak self] in
+            self?.activateAccessorySession()
+        }
     }
 
     func showAccessoryPicker() {
@@ -69,7 +79,8 @@ final class ELMBluetooth: NSObject, ObservableObject {
     }
 
     func reconnect() {
-        guard central.state == .poweredOn else { return }
+        // AccessorySetupKit/CoreBluetoothのcallback順序に依存しないようnil guardを置く．
+        guard let central, central.state == .poweredOn else { return }
         if let idString = UserDefaults.standard.string(forKey: Self.savedPeripheralKey),
            let id = UUID(uuidString: idString),
            let p = central.retrievePeripherals(withIdentifiers: [id]).first {

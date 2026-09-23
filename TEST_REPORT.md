@@ -1,6 +1,6 @@
-# v3.2 Build Fix
+# v3.3 Build Fix
 
-GitHub Actions run 35597136048で，`TripLogWriter.swift`から`@MainActor KWPProtocol`の純粋static関数`isSafeReadOnly`を同期呼出ししたため，Swiftコンパイラがactor isolation errorで停止した．v3.2では同関数を`nonisolated static`へ変更した．関数は引数文字列をbyte列へ変換してallowlist判定するだけで，共有可変状態やUI状態へアクセスしないため，nonisolated化が適切である．
+GitHub Actions run 35597136048で，`TripLogWriter.swift`から`@MainActor KWPProtocol`の純粋static関数`isSafeReadOnly`を同期呼出ししたため，Swiftコンパイラがactor isolation errorで停止した．v3.3では同関数を`nonisolated static`へ変更した．関数は引数文字列をbyte列へ変換してallowlist判定するだけで，共有可変状態やUI状態へアクセスしないため，nonisolated化が適切である．
 
 ローカルSwift 6.2.1で`KWPDecoder.swift`，`KWPProtocol.swift`，`TripLogWriter.swift`をBLE stubとともにmodule compileし，actor isolation errorが解消したことを確認した．
 
@@ -53,11 +53,19 @@ macOS 26 + Xcode 26で，
 
 ## 未実施
 
-この生成環境にはユーザーのiPhone，OBDBLE，HC24S実車がないため，v3.2の現車BLE/K-Line試験は未実施である．
-したがって「v3.2がHC24S固有ライブデータを既に復号できる」とはしていない．
+この生成環境にはユーザーのiPhone，OBDBLE，HC24S実車がないため，v3.3の現車BLE/K-Line試験は未実施である．
+したがって「v3.3がHC24S固有ライブデータを既に復号できる」とはしていない．
 
 通信初期化は今回HC24S現車で手動成立した，
 
 `ATSP5 / ATSH8111F1 / ATST64 / 3E -> 7E`
 
 を基準とし，現ELM327で `?` だった `ATFI` を必須経路から除外した．
+
+
+## v3.3 startup crash regression
+
+- CoreBluetooth central is created before AccessorySetupKit activation.
+- AccessorySetupKit activation is deferred to the next main run-loop turn.
+- reconnect() safely returns while central is still nil.
+- This removes the launch race that occurs when an already-registered OBDBLE accessory causes an immediate `.activated` callback during app initialization.

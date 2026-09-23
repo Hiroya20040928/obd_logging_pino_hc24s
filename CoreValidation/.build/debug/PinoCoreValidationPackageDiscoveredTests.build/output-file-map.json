@@ -1,0 +1,19 @@
+{
+  "": {
+    "swift-dependencies": "/mnt/data/pino_v33src/CoreValidation/.build/x86_64-unknown-linux-gnu/debug/PinoCoreValidationPackageDiscoveredTests.build/master.swiftdeps"
+  },
+  "/mnt/data/pino_v33src/CoreValidation/.build/x86_64-unknown-linux-gnu/debug/PinoCoreValidationPackageDiscoveredTests.derived/PinoCoreTests.swift": {
+    "dependencies": "/mnt/data/pino_v33src/CoreValidation/.build/x86_64-unknown-linux-gnu/debug/PinoCoreValidationPackageDiscoveredTests.build/PinoCoreTests.d",
+    "object": "/mnt/data/pino_v33src/CoreValidation/.build/x86_64-unknown-linux-gnu/debug/PinoCoreValidationPackageDiscoveredTests.build/PinoCoreTests.swift.o",
+    "swiftmodule": "/mnt/data/pino_v33src/CoreValidation/.build/x86_64-unknown-linux-gnu/debug/PinoCoreValidationPackageDiscoveredTests.build/PinoCoreTests~partial.swiftmodule",
+    "swift-dependencies": "/mnt/data/pino_v33src/CoreValidation/.build/x86_64-unknown-linux-gnu/debug/PinoCoreValidationPackageDiscoveredTests.build/PinoCoreTests.swiftdeps",
+    "diagnostics": "/mnt/data/pino_v33src/CoreValidation/.build/x86_64-unknown-linux-gnu/debug/PinoCoreValidationPackageDiscoveredTests.build/PinoCoreTests.dia"
+  },
+  "/mnt/data/pino_v33src/CoreValidation/.build/x86_64-unknown-linux-gnu/debug/PinoCoreValidationPackageDiscoveredTests.derived/all-discovered-tests.swift": {
+    "dependencies": "/mnt/data/pino_v33src/CoreValidation/.build/x86_64-unknown-linux-gnu/debug/PinoCoreValidationPackageDiscoveredTests.build/all-discovered-tests.d",
+    "object": "/mnt/data/pino_v33src/CoreValidation/.build/x86_64-unknown-linux-gnu/debug/PinoCoreValidationPackageDiscoveredTests.build/all-discovered-tests.swift.o",
+    "swiftmodule": "/mnt/data/pino_v33src/CoreValidation/.build/x86_64-unknown-linux-gnu/debug/PinoCoreValidationPackageDiscoveredTests.build/all-discovered-tests~partial.swiftmodule",
+    "swift-dependencies": "/mnt/data/pino_v33src/CoreValidation/.build/x86_64-unknown-linux-gnu/debug/PinoCoreValidationPackageDiscoveredTests.build/all-discovered-tests.swiftdeps",
+    "diagnostics": "/mnt/data/pino_v33src/CoreValidation/.build/x86_64-unknown-linux-gnu/debug/PinoCoreValidationPackageDiscoveredTests.build/all-discovered-tests.dia"
+  }
+}
