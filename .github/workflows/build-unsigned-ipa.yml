@@ -1,4 +1,4 @@
-name: Build Pino Auto Logger v3.3 unsigned IPA
+name: Build Pino Auto Logger v3.4 unsigned IPA
 
 on:
   workflow_dispatch:
@@ -35,6 +35,14 @@ jobs:
           cd CoreValidation
           swift test
 
+      - name: Verify AccessorySetupKit runtime is absent
+        shell: bash
+        run: |
+          set -euo pipefail
+          ! grep -R "import AccessorySetupKit" PinoAutoLogger/*.swift
+          ! grep -R "ASAccessorySession()" PinoAutoLogger/*.swift
+          ! grep -q "NSAccessorySetup" PinoAutoLogger/Info.plist
+
       - name: Build device app without code signing
         shell: bash
         run: |
@@ -67,14 +75,14 @@ jobs:
           set -euo pipefail
           mkdir -p Payload
           cp -R build/PinoAutoLogger.app Payload/
-          /usr/bin/zip -qry PinoAutoLogger-HC24S-v3.3-unsigned.ipa Payload
-          shasum -a 256 PinoAutoLogger-HC24S-v3.3-unsigned.ipa | tee PinoAutoLogger-HC24S-v3.3-unsigned.sha256
+          /usr/bin/zip -qry PinoAutoLogger-HC24S-v3.4-unsigned.ipa Payload
+          shasum -a 256 PinoAutoLogger-HC24S-v3.4-unsigned.ipa | tee PinoAutoLogger-HC24S-v3.4-unsigned.sha256
 
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
         with:
-          name: PinoAutoLogger-HC24S-v3.3-unsigned-IPA
+          name: PinoAutoLogger-HC24S-v3.4-unsigned-IPA
           path: |
-            PinoAutoLogger-HC24S-v3.3-unsigned.ipa
-            PinoAutoLogger-HC24S-v3.3-unsigned.sha256
+            PinoAutoLogger-HC24S-v3.4-unsigned.ipa
+            PinoAutoLogger-HC24S-v3.4-unsigned.sha256
           retention-days: 30
