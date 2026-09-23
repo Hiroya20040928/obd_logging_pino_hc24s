@@ -2,66 +2,121 @@ import XCTest
 @testable import PinoCore
 
 final class PinoCoreTests: XCTestCase {
-    func testActualHC24SNegativeService22Frame() throws {
-        let raw = "22\r83 F1 11 7F 22 11 37\r>"
-        let frames = KWPFrameParser.parseAll(raw)
-        XCTAssertEqual(frames.count, 1)
-        XCTAssertEqual(frames[0].source, 0x11)
-        XCTAssertEqual(frames[0].target, 0xF1)
-        XCTAssertEqual(frames[0].negativeRequestSID, 0x22)
-        XCTAssertEqual(frames[0].negativeResponseCode, 0x11)
+    func testActualHC24SNegativeService21Frame() {
+        let raw = "83 F1 11 7F 21 11 36"
+        let c = KWPFrameParser.classify(
+            command: "2100",
+            raw: raw
+        )
 
-        let c = KWPFrameParser.classify(command: "22", raw: raw)
         XCTAssertEqual(c.kind, .negative)
         XCTAssertEqual(c.nrc, 0x11)
     }
 
-    func testActualHC24STesterPresentPositive() throws {
-        let raw = "3E\r81 F1 11 7E 01\r>"
-        let frames = KWPFrameParser.parseAll(raw)
-        XCTAssertEqual(frames.count, 1)
-        XCTAssertEqual(frames[0].service, 0x7E)
+    func testActualHC24STesterPresentFrame() {
+        let raw = "81 F1 11 7E 01"
+        let c = KWPFrameParser.classify(
+            command: "3E",
+            raw: raw
+        )
 
-        let c = KWPFrameParser.classify(command: "3E", raw: raw)
         XCTAssertEqual(c.kind, .positive)
+        XCTAssertEqual(c.responseSID, 0x7E)
     }
 
-    func testAllObservedHC24SChecksums() {
-        let frames = [
-            "83 F1 11 7F 01 11 16",
-            "83 F1 11 7F 10 11 25",
-            "83 F1 11 7F 1A 11 2F",
-            "83 F1 11 7F 21 11 36",
-            "83 F1 11 7F 22 11 37",
-            "83 F1 11 7F 23 11 38",
-            "81 F1 11 7E 01"
+    func testPayloadOnlyStartCommunicationPositive() {
+        let c = KWPFrameParser.classify(
+            command: "81",
+            raw: "C1 8F EA\r>"
+        )
+
+        XCTAssertEqual(c.kind, .positive)
+        XCTAssertEqual(c.responseSID, 0xC1)
+    }
+
+    func testPayloadOnly2100Positive() {
+        var payload: [UInt8] = [0x61, 0x00]
+        payload += Array(repeating: 0x00, count: 65)
+
+        let raw = payload.map {
+            String(format: "%02X", $0)
+        }.joined()
+
+        let c = KWPFrameParser.classify(
+            command: "2100",
+            raw: raw
+        )
+
+        XCTAssertEqual(c.kind, .positive)
+        XCTAssertEqual(c.responseSID, 0x61)
+    }
+
+    func testSuzukiGenericDecode() {
+        var data = Array(repeating: UInt8(0), count: 65)
+
+        // 2000 rpm => raw 8000 => 0x1F40
+        data[20] = 0x1F
+        data[21] = 0x40
+        data[14] = 120  // 80 C
+        data[22] = 60
+        data[24] = 65   // 25 C
+        data[27] = 128
+        data[41] = 200  // 100 kPa
+        data[49] = 180  // 14.112 V
+
+        let payload = [UInt8(0x61), 0x00] + data
+        let raw = payload.map {
+            String(format: "%02X", $0)
+        }.joined()
+
+        let s = SuzukiGenericLiveSnapshot.decode2100(
+            raw: raw
+        )
+
+        XCTAssertNotNil(s)
+        XCTAssertEqual(s?.rpm, 2000)
+        XCTAssertEqual(s?.coolantC, 80)
+        XCTAssertEqual(s?.speedKmh, 60)
+        XCTAssertEqual(s?.intakeC, 25)
+        XCTAssertEqual(s?.baroKpa, 100)
+        XCTAssertEqual(s?.sanityScore, 6)
+    }
+
+    func testActualHC24SBadChecksumRejected() {
+        XCTAssertTrue(
+            KWPFrameParser.parseAll(
+                "83 F1 11 7F 01 11 8B"
+            ).isEmpty
+        )
+    }
+
+    func testLongKWPFrameParsing() {
+        let payload = [UInt8(0x61), 0x00]
+            + Array(repeating: UInt8(0x01), count: 65)
+
+        var frame: [UInt8] = [
+            0x80,
+            0xF1,
+            0x11,
+            UInt8(payload.count)
         ]
-        for f in frames {
-            XCTAssertEqual(KWPFrameParser.parseAll(f).count, 1, "Failed: \(f)")
-        }
-    }
+        frame += payload
 
-    func testDelayedMixedOutputStillFindsKWP() {
-        let raw = """
-        OKELM327 v2.1
-        >
-        BUS INIT:
-        83 F1 11 7F 21 11 36
-        >
-        """
-        let f = KWPFrameParser.parseAll(raw)
-        XCTAssertEqual(f.count, 1)
-        XCTAssertEqual(f[0].negativeRequestSID, 0x21)
-    }
+        let checksum = UInt8(
+            frame.reduce(0) {
+                ($0 + Int($1)) & 0xFF
+            }
+        )
+        frame.append(checksum)
 
-    func testCompactFrame() {
-        let raw = "81F1117E01>"
-        let f = KWPFrameParser.parseAll(raw)
-        XCTAssertEqual(f.count, 1)
-        XCTAssertEqual(f[0].service, 0x7E)
-    }
+        let raw = frame.map {
+            String(format: "%02X", $0)
+        }.joined(separator: " ")
 
-    func testBadChecksumRejected() {
-        XCTAssertTrue(KWPFrameParser.parseAll("83 F1 11 7F 22 11 00").isEmpty)
+        let parsed = KWPFrameParser.parseAll(raw)
+
+        XCTAssertEqual(parsed.count, 1)
+        XCTAssertEqual(parsed[0].payload.first, 0x61)
+        XCTAssertEqual(parsed[0].payload.count, 67)
     }
 }

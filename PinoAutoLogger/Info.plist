@@ -15,20 +15,17 @@
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>3.4</string>
+    <string>4.1</string>
     <key>CFBundleVersion</key>
-    <string>6</string>
+    <string>8</string>
     <key>LSRequiresIPhoneOS</key>
     <true/>
-
     <key>NSBluetoothAlwaysUsageDescription</key>
-    <string>HC24SのELM327へ自動接続し，診断通信を安全に記録するためBluetoothを使用します．</string>
-
+    <string>HC24SのELM327へ自動接続し，SUZUKI1/KWP診断通信を記録するためBluetoothを使用します．</string>
     <key>UIBackgroundModes</key>
     <array>
         <string>bluetooth-central</string>
     </array>
-
     <key>UIFileSharingEnabled</key>
     <true/>
     <key>LSSupportsOpeningDocumentsInPlace</key>
